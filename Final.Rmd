@@ -1,0 +1,156 @@
+---
+title: "Final task"
+author: "Кульгаева А."
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r libraries, echo=FALSE}
+library(tidyverse)
+library(readxl)
+library(tibble)
+library(dplyr)
+library(psych)
+library(flextable)
+library(rmarkdown)
+library(gtsummary)
+```
+
+**Загрузка рабочей базы данных**
+
+
+```{r data base}
+dat <- read_excel('C:/Users/Lenovo/Desktop/Настя/Биостатистика/R_courses/data_excel.xlsx', col_names = TRUE)
+
+str(dat)
+```
+
+**Исправление типа переменных, удаление измерений с пропусками**
+
+
+```{r data type}
+dat$`Группа крови` <- ifelse(dat$`Группа крови` == "NA", NA, dat$`Группа крови`)
+dat <- dat %>%  
+  mutate(
+  across(c(`Группа`, `Пол`, `Группа крови`), ~ as.factor(.x))
+)
+
+str(dat)
+```
+
+**Создание подгрупп по визитам**
+
+
+```{r visit group}
+vis_1 <- dat %>% select (!contains("_E2"))
+vis_2 <- dat %>% select (!contains("_E1"))
+```
+
+
+# Общая сводка данных
+
+```{r}
+dat %>% summary()
+```
+
+
+# Создание функции для описания данных
+
+```{r}
+stat <- list (
+  
+  `_Число обследуемых` = ~length(.x) %>% as.character(),
+  `_Данных без пропусков` = ~sum(!is.na(.x)) %>% as.character(),
+  `_Нет данных` = ~sum(is.na(.x)) %>% as.character(),
+  `_Среднее` = ~ifelse(sum(!is.na(.x)) == 0, "Пусто", mean(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+  `_Ст. ошибка среднего` = ~ifelse(sum(!is.na(.x)) == 0, "Пусто", paste0((mean(.x, na.rm = TRUE) - sd(.x, na.rm = T)/sqrt(length(.x))) %>%       round(2), " - ", (mean(.x, na.rm = TRUE) + sd(.x, na.rm = T)/sqrt(length(.x))) %>% round(2))),
+  `_Ст. отклонение` = ~ifelse(sum(!is.na(.x)) < 3, "Пусто", sd(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+  `_Медиана` = ~ifelse(sum(!is.na(.x)) == 0, "Пусто", median(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+  `_Мин. - макс.` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", paste0(min(.x, na.rm = TRUE) %>% round(2), " - ", max(.x, na.rm = TRUE) %>% round(2))),
+  `_Q1-Q3`= ~ifelse(sum(!is.na(.x)) == 0, "Пусто", paste0(quantile(.x, 0.25, na.rm = TRUE) %>% round(2), " - ", quantile(.x, 0.75, na.rm = TRUE) %>% round(2)))
+)
+
+```
+
+
+# Описательная статистика для каждого из визитов по группам
+
+## Визит 1-й
+
+**Количественные переменные**
+
+```{r group}
+vis_1 %>% select (`Группа`, where(is.numeric)) %>%
+  group_by(`Группа`)  %>%
+  summarise(across(where(is.numeric), stat)) %>%
+  pivot_longer(!`Группа`) %>%
+  separate(name, into = c("Переменная","Статистика"), sep = "__") %>%
+  rename(`Значение` = value) %>%
+  flextable() %>% theme_box %>%
+  merge_v(c("Группа","Переменная")) %>% width(width = 1.8)
+```
+
+**Категориальные переменные**
+
+```{r}
+vis_1 %>% select (`Группа`, where(is.factor)) %>%
+  mutate(`Группа крови` = `Группа крови` %>% as.character() %>% replace_na("Нет данных") %>% as.factor()) %>%
+           count(`Группа`,`Группа крови`) %>%
+           group_by(`Группа`) %>%
+           mutate(`Процент по группе` = (n/ sum(n)) %>% round(4)%>% `*`(100) %>% str_c("%")) %>%
+  ungroup() %>%
+  mutate(`Процент по выборке` = (n/ sum(n)) %>% round(4)%>% `*`(100) %>% str_c("%")) %>% 
+  flextable() %>% merge_v("Группа") %>% theme_box() %>% width(width = 1.5)
+```
+
+
+## Визит 2
+
+**Количественные переменные**
+
+```{r}
+vis_2 %>% select (`Группа`, where(is.numeric)) %>%
+  group_by(`Группа`)  %>%
+  summarise(across(where(is.numeric), stat)) %>%
+  pivot_longer(!`Группа`) %>%
+  separate(name, into = c("Переменная","Статистика"), sep = "__") %>%
+  rename(`Значение` = value) %>%
+  flextable() %>% theme_box %>%
+  merge_v(c("Группа","Переменная")) %>% width(width = 1.8)
+```
+
+**Качественные переменные**
+
+```{r}
+vis_2 %>% select (`Группа`, where(is.factor)) %>%
+  mutate(`Группа крови` = `Группа крови` %>% as.character() %>% replace_na("Нет данных") %>% as.factor()) %>%
+           count(`Группа`,`Группа крови`) %>%
+           group_by(`Группа`) %>%
+           mutate(`Процент по группе` = (n/ sum(n)) %>% round(4)%>% `*`(100) %>% str_c("%")) %>%
+  ungroup() %>%
+  mutate(`Процент по выборке` = (n/ sum(n)) %>% round(4)%>% `*`(100) %>% str_c("%")) %>% 
+  flextable() %>% merge_v("Группа") %>% theme_box() %>% width(width = 1.5)
+```
+
+
+# Сравнение медиан между группами пациентов по визитам
+
+## Визит 1
+
+```{r}
+vis_1 %>% select (`Группа`, where(is.numeric)) %>%
+    tbl_summary(by = `Группа`) %>% 
+    add_p()
+```
+
+## Визит 2
+
+```{r}
+vis_2 %>% select (`Группа`, where(is.numeric)) %>%
+    tbl_summary(by = `Группа`) %>% 
+    add_p()
+```
+
